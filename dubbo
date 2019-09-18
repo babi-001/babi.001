@@ -1,0 +1,69 @@
+：https://blog.csdn.net/baoyu_G/article/details/82314435
+1.Dubbo意义
+
+
+
+网站应用的架构变化经历了一个从所有服务分布在一台服务器上（All in one 、单一应用架构）到 垂直应用架构 （MVC模式，按照各模块的职能划分）到分布式应用架构（RPC、按照服务不同分布在不同的服务器上）再到面向服务的架构（SOA，增加调度中心，负责集群的调度和管理）的过程。 Dubbo就是处在SOA架构阶段的一个远程服务调用框架。
+
+2.系统结构
+
+
+
+ Dubbo系统分为五个部分：远程服务运行容器（Container），远程服务提供方（Provider）、注册中心（Register）、远程服务调用者（Consumer）、监控中心（Monitor）。
+
+Dubbo服务调用过程：
+
+服务提供方（Provider）所在的应用在容器中启动并运行（这个容器可以说是该应用部署的tomcat）
+服务提供方（Provider）将自己要发布的服务注册到注册中心（Registry）
+服务调用方（Consumer）启动后向注册中心订阅它想要调用的服务
+注册中心（registry）存储着Provider注册的远程服务，并将其所管理的服务列表通知给服务调用方（Consumer），且注册中心和提供方和调用方之间均保持长连接，可以获取Provider发布的服务的变化情况，并将最新的服务列表推送给Consumer
+Consumer根据从注册中心获得的服务列表，根据软负载均衡算法选择一个服务提供者（Provider）进行远程服务调用，如果调用失败则选择另一台进行调用。（Consumer会缓存服务列表，即使注册中心宕机也不妨碍进行远程服务调用）
+监控中心（Monitor）对服务的发布和订阅进行监控和统计服务消费者和提供者，在内存中累计调用次数和调用时间，定时每分钟发送一次统计数据到监控中心（Monitor）;Monitor可以选择Zookeeper、Redis或者Multiast注册中心等，后序介绍。
+3.Dubbo  + Zookeeper
+
+
+
+Dubbo可以用Zookeeper作为注册中心，存储Provider注册的远程服务信息。
+
+Zookeeper采用树形的目录结构来存储信息。
+
+
+
+服务提供者启动时: 向 /dubbo/com.foo.BarService/providers 目录下写入自己的 URL 地 址
+服务消费者启动时: 订阅 /dubbo/com.foo.BarService/providers 目录下的提供者 URL 地 址。并向 /dubbo/com.foo.BarService/consumers 目录下写入自己的 URL 地址
+监控中心启动时: 订阅 /dubbo/com.foo.BarService 目录下的所有提供者和消费者 URL 地 址。
+支持以下功能：
+
+当提供者出现断电等异常停机时，注册中心能自动删除提供者信息
+当注册中心重启时，能自动恢复注册数据，以及订阅请求
+当会话过期时，能自动恢复注册数据，以及订阅请求
+当设置<dubbo:registry check="false" />时，记录失败注册和订阅请求，后台定时重试
+可通过设置<dubbo:registry username="admin" password="124" />设置zookeeper 登录信息
+可通过<dubbo:registry group="dubbo" />设置 zookeeper 的根节点，不设置将使用无 根树
+支持 * 号通配符 <dubbo:redistry group="*" version="*" />，可订阅服务的所有分组 和所有版本的提供者
+4.Dubbo + Redis
+
+Redis是一个基于内存的，以Key-Value形式存储数据的高性能Nosql数据库，可以用来存储远程服务信息用作注册中心
+
+
+
+使用 Redis 的 Key—Map 结构存储数据结构：
+
+主键 Key 为服务名和服务类型：比如./dubbo/com.foo.BarService/providers或./dubbo/com.foo.BarService/providers，相当于Zookeeper中的第三层目录
+值 Map 中的 Key 为 URL 地址 ，Map 中的 Value 为过期时间，用于判断脏数据，脏数据由监控中心删除
+使用 Redis 的 Publish/Subscribe 事件通知数据变更：
+
+通过事件的值区分事件类型： register , unregister , subscribe , unsubscribe
+普通消费者直接订阅指定服务提供者的 Key，只会收到指定服务的 register , unregister 事件
+监控中心通过 psubscribe 功能订阅 /dubbo/* ，会收到所有服务的所有变更事件
+调用过程：
+
+服务提供方启动时，向 Key:/dubbo/com.foo.BarService/providers 下，添加当前提供者的地址， 并向 Channel:/dubbo/com.foo.BarService/providers 发送 register 事件
+ 服务消费方启动时，从 Channel:/dubbo/com.foo.BarService/providers 订阅 register 和 unregister 事件 ， 并向 Key:/dubbo/com.foo.BarService/providers 下，添加当前消费者的地址
+服务消费方收到 register 和 unregister 事件后，从 Key:/dubbo/com.foo.BarService/providers 下获取提供者地址列表
+服务监控中心启动时，从 Channel:/dubbo/* 订阅 register 和 unregister ，以及subscribe 和 unsubsribe 事件
+服务监控中心收到 register 和 unregister 事件后，从 Key:/dubbo/com.foo.BarService/providers 下获取提供者地址列表
+服务监控中心收到 subscribe 和 unsubsribe 事件后，从 Key:/dubbo/com.foo.BarService/consumers 下获取消费者地址列表
+————————————————
+版权声明：本文为CSDN博主「guo_bao_yu」的原创文章，遵循 CC 4.0 BY-SA 版权协议，转载请附上原文出处链接及本声明。
+原文链接：https://blog.csdn.net/baoyu_G/article/details/82314435
